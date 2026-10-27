@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Frame Foundry — HTML ke Video (Render Murni)</title>
+<script src="https://unpkg.com/mp4-muxer@5.1.1/build/mp4-muxer.js"></script>
+<style>
+  :root{
+    --bg: #10121c; --bg-raise: #171a29; --line: #2a2e42;
+    --ink: #eae7de; --ink-dim: #9498ac;
+    --gold: #e0a458; --gold-dim: #7a6440;
+    --danger: #d9705f; --ok: #7cb88f;
+    --mono: "SF Mono", "Cascadia Code", Consolas, "Roboto Mono", monospace;
+    --serif: Charter, "Iowan Old Style", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink); font-family:var(--sans); -webkit-tap-highlight-color:transparent; }
+  body{ min-height:100vh; padding:20px 16px 60px; }
+  .wrap{ max-width:960px; margin:0 auto; }
+  header{ margin-bottom:22px; }
+  header .kicker{ font-family:var(--mono); font-size:12px; letter-spacing:.04em; color:var(--gold); margin-bottom:6px; }
+  h1{ font-family:var(--serif); font-weight:400; font-size:clamp(26px,5vw,36px); margin:0 0 8px; line-height:1.15; }
+  header p{ color:var(--ink-dim); font-size:14.5px; line-height:1.5; max-width:60ch; margin:0; }
+  header p + p{ margin-top:8px; }
+  section{ background:var(--bg-raise); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
+  section h2{ font-family:var(--serif); font-weight:400; font-size:17px; margin:0 0 12px; display:flex; align-items:center; gap:8px; }
+  section h2 .num{ font-family:var(--mono); font-size:12px; color:var(--gold); border:1px solid var(--gold-dim); border-radius:5px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  textarea{ width:100%; min-height:160px; background:#0b0d16; color:#c9e6c4; border:1px solid var(--line); border-radius:8px; padding:12px; font-family:var(--mono); font-size:12.5px; line-height:1.5; resize:vertical; }
+  textarea:focus, select:focus, input:focus{ outline:2px solid var(--gold-dim); outline-offset:1px; }
+  textarea::placeholder{ color:#4b5266; }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (min-width:640px){ .grid{ grid-template-columns:1fr 1fr 1fr; } }
+  label{ display:block; font-size:12px; color:var(--ink-dim); margin-bottom:6px; font-family:var(--mono); }
+  select, input[type=number]{ width:100%; background:#0b0d16; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:10px; font-size:14px; font-family:var(--sans); }
+  .actions{ display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; align-items:center; }
+  button{ font-family:var(--sans); font-size:14.5px; font-weight:600; border:none; border-radius:8px; padding:13px 20px; cursor:pointer; transition:filter .15s ease, transform .05s ease; }
+  button:active{ transform:scale(0.98); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  #recordBtn{ background:var(--gold); color:#1a1200; }
+  #recordBtn:hover:not(:disabled){ filter:brightness(1.08); }
+  #cancelBtn{ background:transparent; color:var(--ink); border:1px solid var(--line); }
+  .phase{ font-family:var(--mono); font-size:12.5px; color:var(--ink-dim); margin-top:14px; }
+  .phase .row{ display:flex; justify-content:space-between; margin-bottom:5px; }
+  .phase .row span:last-child{ color:var(--ink); }
+  .bar{ height:6px; border-radius:4px; background:#0b0d16; overflow:hidden; }
+  .bar > div{ height:100%; width:0%; background:var(--gold); transition:width .12s linear; }
+  .status{ font-family:var(--mono); font-size:12.5px; color:var(--ink-dim); margin-top:12px; min-height:18px; }
+  .status.live{ color:var(--gold); }
+  .status.err{ color:var(--danger); }
+  .status.ok{ color:var(--ok); }
+  .stage{ position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; border:1px solid var(--line); margin-top:14px; }
+  .stage iframe{ position:absolute; top:0; left:0; border:none; transform-origin: top left; pointer-events:none; }
+  .stage .tag{ position:absolute; bottom:8px; right:10px; font-family:var(--mono); font-size:10.5px; color:var(--ink-dim); background:rgba(0,0,0,.5); padding:3px 7px; border-radius:5px; }
+  video{ width:100%; border-radius:8px; margin-top:14px; display:none; background:#000; }
+  .dl{ display:none; margin-top:12px; align-items:center; justify-content:space-between; gap:10px; background:#0b0d16; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .dl a{ color:var(--gold); font-family:var(--mono); font-size:13px; text-decoration:none; }
+  .dl a:hover{ text-decoration:underline; }
+  .dl span{ color:var(--ink-dim); font-size:12px; font-family:var(--mono); }
+  footer{ color:var(--ink-dim); font-size:12px; line-height:1.6; margin-top:22px; }
+  footer b{ color:var(--ink); font-weight:600; }
+
+  .meta-box{ margin-top:14px; background:#0b0d16; border:1px solid var(--line); border-radius:8px; padding:14px; display:none; }
+  .meta-row{ display:flex; gap:10px; font-size:13px; padding:4px 0; border-bottom:1px solid var(--line); }
+  .meta-row:last-of-type{ border-bottom:none; }
+  .meta-row span{ color:var(--ink-dim); font-family:var(--mono); font-size:11.5px; width:110px; flex-shrink:0; padding-top:1px; }
+  .meta-row b{ color:var(--ink); font-weight:500; line-height:1.4; }
+  #csvShutterstockBtn, #csvAdobeBtn{ background:transparent; color:var(--gold); border:1px solid var(--gold-dim); padding:10px 16px; font-size:13px; margin-top:0; }
+
+  /* Unggah file HTML */
+  .upload-row{ display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:12px; }
+  #uploadBtn{ background:transparent; color:var(--gold); border:1px solid var(--gold-dim); padding:10px 16px; font-size:13px; }
+  #uploadBtn:hover{ border-color:var(--gold); }
+  .file-chip{ font-family:var(--mono); font-size:12px; color:var(--ink-dim); min-width:0; overflow-wrap:anywhere; }
+  .file-chip b{ color:var(--ink); font-weight:500; }
+  .file-chip.err{ color:var(--danger); }
+  .dropzone textarea{ transition:border-color .15s ease, background .15s ease; }
+  .dropzone.dragover textarea{ border-color:var(--gold); background:#14120d; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">FRAME FOUNDRY — RENDER MURNI</div>
+    <h1>Render kode HTML jadi video, frame demi frame</h1>
+    <p>Setiap frame digambar satu per satu pada waktu yang presisi (bukan mengikuti jam asli seperti rekam layar), lalu dikodekan langsung oleh browser (WebCodecs) menjadi file MP4 — tanpa server, tanpa ffmpeg, tanpa perlu header khusus apa pun.</p>
+    <p id="supportStatus">Memeriksa dukungan browser…</p>
+  </header>
+
+  <section>
+    <h2><span class="num">1</span>Unggah atau tempel kode HTML kamu</h2>
+    <div class="dropzone" id="dropZone">
+      <div class="upload-row">
+        <button type="button" id="uploadBtn">📁 Unggah file HTML</button>
+        <input type="file" id="fileInput" accept=".html,.htm,.xhtml,text/html" hidden>
+        <span class="file-chip" id="fileChip">atau seret file .html ke kotak di bawah</span>
+      </div>
+      <textarea id="codeInput" placeholder="Unggah file HTML di atas, atau tempel seluruh isinya di sini (dari <!DOCTYPE html> sampai </html>)..."></textarea>
+    </div>
+    <div class="status" id="metaStatus"></div>
+    <div class="meta-box" id="metaBox">
+      <div class="meta-row"><span>Judul</span><b id="metaTitle">—</b></div>
+      <div class="meta-row"><span>Deskripsi</span><b id="metaDesc">—</b></div>
+      <div class="meta-row"><span>Kata kunci</span><b id="metaKeywords">—</b></div>
+      <div class="meta-row"><span>Kategori</span><b id="metaCategory">—</b></div>
+      <div class="meta-row"><span>Aspek rasio</span><b id="metaAspect">—</b></div>
+      <div class="meta-row"><span>FPS / Durasi</span><b id="metaFpsDur">—</b></div>
+      <div class="actions">
+        <button id="csvShutterstockBtn">⬇ CSV Shutterstock</button>
+        <button id="csvAdobeBtn">⬇ CSV Adobe Stock</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">2</span>Pengaturan video</h2>
+    <div class="grid">
+      <div>
+        <label for="res">Resolusi</label>
+        <select id="res">
+          <option value="1280x720">HD — 1280×720</option>
+          <option value="1920x1080" selected>Full HD — 1920×1080</option>
+          <option value="3840x2160">4K UHD — 3840×2160 (berat)</option>
+        </select>
+      </div>
+      <div>
+        <label for="fps">Frame rate</label>
+        <select id="fps">
+          <option value="24">24 fps</option>
+          <option value="30" selected>30 fps</option>
+          <option value="60">60 fps</option>
+        </select>
+      </div>
+      <div>
+        <label for="dur">Durasi (detik)</label>
+        <input id="dur" type="number" min="1" max="60" value="20">
+      </div>
+    </div>
+    <div class="actions">
+      <button id="recordBtn" disabled>Mulai render murni</button>
+      <button id="cancelBtn">Batalkan</button>
+    </div>
+    <div class="phase" id="phase" style="display:none;">
+      <div class="row"><span id="phaseLabel">Menggambar & mengkodekan frame</span><span id="phaseCount">0 / 0</span></div>
+      <div class="bar"><div id="phaseBar"></div></div>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section id="stageSection" style="display:none;">
+    <h2><span class="num">3</span>Pratinjau frame yang sedang digambar</h2>
+    <div class="stage" id="stage"><span class="tag" id="stageTag"></span></div>
+  </section>
+
+  <section id="resultSection" style="display:none;">
+    <h2><span class="num">4</span>Hasil</h2>
+    <video id="resultVideo" controls loop></video>
+    <div class="dl" id="dlRow">
+      <span id="dlInfo">—</span>
+      <a id="dlLink" download>⬇ Unduh video (.mp4)</a>
+    </div>
+  </section>
+
+  <footer>
+    <b>Kenapa lebih lambat dari "rekam layar".</b> Tiap frame ditunggu sampai selesai digambar sebelum lanjut ke frame berikutnya, jadi tidak ada frame dobel atau kelewat — trade-off-nya, waktu proses total bisa lebih lama dari durasi videonya sendiri, terutama di resolusi tinggi.<br><br>
+    <b>Dukungan browser.</b> Butuh WebCodecs API: Chrome/Edge (desktop & Android) dan Safari versi baru (iOS/macOS 16.4+) sudah mendukung. Firefox belum mendukung penuh — kalau kamu pakai Firefox, coba buka tool ini di Chrome.<br><br>
+    <b>Batasan.</b> Paling akurat untuk animasi berbasis <code>requestAnimationFrame</code> di satu &lt;canvas&gt; atau satu &lt;svg&gt; (seperti contoh skyline dan swipe transition). Untuk SVG, animasi CSS/SMIL (<code>@keyframes</code>, <code>&lt;animate&gt;</code>) tidak ikut bergerak, serta font dan gambar eksternal tidak ikut terender; gerakan harus digerakkan lewat <code>requestAnimationFrame</code>. Latar transparan jadi hitam karena MP4 tidak punya alpha. Kode yang pakai <code>setTimeout</code>/<code>setInterval</code> sendiri atau WebGL kompleks mungkin perlu penyesuaian.<br><br>
+    <b>Privasi.</b> Semua proses (menggambar, mengkodekan, mem-bungkus MP4) terjadi di browser kamu sendiri — tidak ada kode atau video yang diunggah ke server mana pun.<br><br>
+    <b>Soal kategori di CSV.</b> Shutterstock & Adobe Stock masing-masing punya daftar kategori baku sendiri (Adobe malah pakai nomor kode, bukan nama). Nilai <code>category</code> dari JSON kode kamu kemungkinan tidak cocok persis dengan daftar itu, jadi kolom kategori sengaja dikosongkan/diisi apa adanya di CSV Adobe — cek dan sesuaikan manual sebelum diunggah. Kolom Illustration/Mature Content/Editorial di CSV Shutterstock juga dikosongkan karena itu penilaian konten, bukan sesuatu yang bisa ditebak dari metadata.
+  </footer>
+</div>
+
+<script>
+const codeInput   = document.getElementById('codeInput');
+const resSel      = document.getElementById('res');
+const fpsSel      = document.getElementById('fps');
+const durInput    = document.getElementById('dur');
+const recordBtn   = document.getElementById('recordBtn');
+const cancelBtn   = document.getElementById('cancelBtn');
+const statusEl    = document.getElementById('status');
+const phase       = document.getElementById('phase');
+const phaseLabel  = document.getElementById('phaseLabel');
+const phaseCount  = document.getElementById('phaseCount');
+const phaseBar    = document.getElementById('phaseBar');
+const stageSection= document.getElementById('stageSection');
+const stage       = document.getElementById('stage');
+const stageTag    = document.getElementById('stageTag');
+const resultSection = document.getElementById('resultSection');
+const resultVideo = document.getElementById('resultVideo');
+const dlRow       = document.getElementById('dlRow');
+const dlLink      = document.getElementById('dlLink');
+const dlInfo      = document.getElementById('dlInfo');
+const supportStatus = document.getElementById('supportStatus');
+const metaStatus  = document.getElementById('metaStatus');
+const metaBox     = document.getElementById('metaBox');
+const metaTitle   = document.getElementById('metaTitle');
+const metaDesc    = document.getElementById('metaDesc');
+const metaKeywords= document.getElementById('metaKeywords');
+const metaCategory= document.getElementById('metaCategory');
+const metaAspect  = document.getElementById('metaAspect');
+const metaFpsDur  = document.getElementById('metaFpsDur');
+const csvShutterstockBtn = document.getElementById('csvShutterstockBtn');
+const csvAdobeBtn = document.getElementById('csvAdobeBtn');
+
+let currentIframe = null;
+let cancelled = false;
+let lastMetadata = null;
+
+function setStatus(msg, cls){ statusEl.textContent = msg; statusEl.className = 'status' + (cls ? ' ' + cls : ''); }
+function setPhase(label, current, total){
+  phase.style.display = 'block';
+  phaseLabel.textContent = label;
+  phaseCount.textContent = current + ' / ' + total;
+  phaseBar.style.width = (total > 0 ? (current/total*100) : 0) + '%';
+}
+
+// Feature-detect WebCodecs + mp4-muxer up front.
+(function checkSupport(){
+  const hasCodecs = typeof window.VideoEncoder === 'function' && typeof window.VideoFrame === 'function';
+  const hasMuxer = typeof window.Mp4Muxer === 'object';
+  if(hasCodecs && hasMuxer){
+    supportStatus.textContent = 'Browser ini didukung — siap merender.';
+    supportStatus.style.color = 'var(--ok)';
+    recordBtn.disabled = false;
+  }else{
+    supportStatus.textContent = !hasCodecs
+      ? 'Browser ini belum mendukung WebCodecs (VideoEncoder), jadi tool ini belum bisa dipakai di sini. Coba buka di Chrome/Edge terbaru (desktop atau Android), atau Safari 16.4+.'
+      : 'Gagal memuat pustaka mp4-muxer (cek koneksi internet lalu muat ulang halaman).';
+    supportStatus.style.color = 'var(--danger)';
+    recordBtn.disabled = true;
+  }
+})();
+
+/* ============ METADATA (JSON block -> preview, auto duration/fps, CSV) ============ */
+
+function extractMetadataJson(html){
+  const match = html.match(/<!--\s*METADATA([\s\S]*?)METADATA\s*-->/i);
+  if(!match) return null;
+  const raw = match[1].trim();
+  try{ return JSON.parse(raw); }
+  catch(e){ return null; }
+}
+
+function csvEscape(v){
+  v = (v === undefined || v === null) ? '' : String(v);
+  if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+  return v;
+}
+
+function metadataToShutterstockCsv(meta){
+  // Official Shutterstock columns (order & names must match exactly):
+  // Filename, Description, Keywords, Categories, Illustration, Mature Content, Editorial
+  const headers = ['Filename','Description','Keywords','Categories','Illustration','Mature Content','Editorial'];
+  const filename = meta.filename_base ? meta.filename_base + '.mp4' : '';
+  const keywords = Array.isArray(meta.keywords) ? meta.keywords.join(', ') : (meta.keywords || '');
+  const categories = [meta.category, meta.category_secondary].filter(Boolean).join(', ');
+  const row = [filename, meta.description || meta.title || '', keywords, categories, '', '', ''];
+  return headers.map(csvEscape).join(',') + '\r\n' + row.map(csvEscape).join(',') + '\r\n';
+}
+
+function metadataToAdobeStockCsv(meta){
+  // Official Adobe Stock columns (order & names must match exactly):
+  // Filename, Title, Keywords, Category, Releases
+  const headers = ['Filename','Title','Keywords','Category','Releases'];
+  const filename = meta.filename_base ? meta.filename_base + '.mp4' : '';
+  const title = (meta.title || '').replace(/,/g, '').slice(0, 70); // Adobe: no commas, max 70 chars
+  const keywordsArr = Array.isArray(meta.keywords) ? meta.keywords : (meta.keywords ? [meta.keywords] : []);
+  const keywords = keywordsArr.slice(0, 49).join(', '); // Adobe: max 50 keywords
+  const row = [filename, title, keywords, '', ''];
+  return headers.map(csvEscape).join(',') + '\r\n' + row.map(csvEscape).join(',') + '\r\n';
+}
+
+function downloadCsv(text, filename){
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function applyMetadata(meta){
+  lastMetadata = meta;
+  metaBox.style.display = 'block';
+  metaTitle.textContent = meta.title || '(tidak ada)';
+  metaDesc.textContent = meta.description || '(tidak ada)';
+  metaKeywords.textContent = Array.isArray(meta.keywords) ? meta.keywords.join(', ') : (meta.keywords || '(tidak ada)');
+  metaCategory.textContent = [meta.category, meta.category_secondary].filter(Boolean).join(' · ') || '(tidak ada)';
+  metaAspect.textContent = meta.aspect_ratio || '(tidak ada)';
+
+  let fpsDurParts = [];
+  if(meta.fps != null) fpsDurParts.push(meta.fps + ' fps');
+  if(meta.duration_seconds != null) fpsDurParts.push(meta.duration_seconds + ' detik');
+  metaFpsDur.textContent = fpsDurParts.length ? fpsDurParts.join(' · ') : '(tidak ada)';
+
+  let autoNotes = [];
+  if(meta.duration_seconds != null && !isNaN(Number(meta.duration_seconds))){
+    durInput.value = Math.max(1, Math.min(60, Number(meta.duration_seconds)));
+    autoNotes.push('durasi');
+  }
+  if(meta.fps != null){
+    const fpsVal = String(Math.round(Number(meta.fps)));
+    let opt = Array.from(fpsSel.options).find(o => o.value === fpsVal);
+    if(!opt){
+      opt = document.createElement('option');
+      opt.value = fpsVal;
+      opt.textContent = fpsVal + ' fps (dari metadata)';
+      fpsSel.appendChild(opt);
+    }
+    fpsSel.value = fpsVal;
+    autoNotes.push('fps');
+  }
+
+  metaStatus.textContent = 'Metadata terbaca dari kode' + (autoNotes.length ? ' — ' + autoNotes.join(' & ') + ' otomatis disesuaikan.' : '.');
+  metaStatus.className = 'status ok';
+}
+
+function clearMetadata(){
+  lastMetadata = null;
+  metaBox.style.display = 'none';
+  metaStatus.textContent = '';
+  metaStatus.className = 'status';
+}
+
+codeInput.addEventListener('input', () => {
+  const html = codeInput.value;
+  if(!html.trim()){ clearMetadata(); return; }
+  const meta = extractMetadataJson(html);
+  if(meta) applyMetadata(meta);
+  else clearMetadata();
+});
+
+/* ============ UNGGAH FILE HTML (alternatif dari tempel manual) ============ */
+
+const uploadBtn = document.getElementById('uploadBtn');
+const fileInput = document.getElementById('fileInput');
+const fileChip  = document.getElementById('fileChip');
+const dropZone  = document.getElementById('dropZone');
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function setFileChip(html, isErr){
+  fileChip.innerHTML = html;
+  fileChip.className = 'file-chip' + (isErr ? ' err' : '');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function formatBytes(n){
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/(1024*1024)).toFixed(1) + ' MB';
+}
+
+function loadHtmlFile(file, extraCount){
+  if(!file) return;
+  const isHtml = /\.(html?|xhtml)$/i.test(file.name || '') || file.type === 'text/html';
+  if(!isHtml){
+    setFileChip('Bukan file HTML: <b>' + escapeHtml(file.name) + '</b>. Pilih file berekstensi .html atau .htm.', true);
+    return;
+  }
+  if(file.size > MAX_UPLOAD_BYTES){
+    setFileChip('File terlalu besar (' + formatBytes(file.size) + '). Batas maksimal 10 MB.', true);
+    return;
+  }
+
+  setFileChip('Membaca <b>' + escapeHtml(file.name) + '</b>…', false);
+  const reader = new FileReader();
+  reader.onload = () => {
+    codeInput.value = String(reader.result);
+    // Picu handler 'input' supaya blok METADATA langsung terbaca (durasi, fps, CSV).
+    codeInput.dispatchEvent(new Event('input'));
+    let msg = '✓ <b>' + escapeHtml(file.name) + '</b> · ' + formatBytes(file.size) + ' dimuat';
+    if(extraCount > 0) msg += ' (file lain diabaikan, hanya file pertama yang dipakai)';
+    setFileChip(msg, false);
+  };
+  reader.onerror = () => setFileChip('Gagal membaca file. Coba unggah ulang.', true);
+  reader.readAsText(file, 'UTF-8');
+}
+
+uploadBtn.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+  const files = fileInput.files;
+  if(files && files.length) loadHtmlFile(files[0], files.length - 1);
+  fileInput.value = ''; // supaya file yang sama bisa dipilih ulang setelah diedit
+});
+
+// Drag & drop. preventDefault di level window mencegah browser membuka file
+// sebagai halaman baru kalau terlepas di luar kotak.
+['dragover', 'drop'].forEach(evt => {
+  window.addEventListener(evt, e => {
+    if(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault();
+  });
+});
+dropZone.addEventListener('dragenter', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', e => {
+  if(!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if(files && files.length) loadHtmlFile(files[0], files.length - 1);
+});
+
+csvShutterstockBtn.addEventListener('click', () => {
+  if(!lastMetadata) return;
+  const csv = metadataToShutterstockCsv(lastMetadata);
+  downloadCsv(csv, (lastMetadata.filename_base || 'metadata') + '-shutterstock.csv');
+});
+
+csvAdobeBtn.addEventListener('click', () => {
+  if(!lastMetadata) return;
+  const csv = metadataToAdobeStockCsv(lastMetadata);
+  downloadCsv(csv, (lastMetadata.filename_base || 'metadata') + '-adobestock.csv');
+});
+
+function buildIframeDoc(userHtml){
+  const shim = `
+    <script>
+      (function(){
+        Object.defineProperty(window, 'devicePixelRatio', { get: function(){ return 1; }, configurable:true });
+        var pendingCb = null;
+        var virtualNow = 0;
+        window.requestAnimationFrame = function(cb){ pendingCb = cb; return 1; };
+        window.cancelAnimationFrame = function(){ pendingCb = null; };
+        performance.now = function(){ return virtualNow; };
+        Date.now = function(){ return virtualNow; };
+        window.__ff_step = function(t){
+          virtualNow = t;
+          var cb = pendingCb;
+          pendingCb = null;
+          if(cb) cb(t);
+          return pendingCb !== null;
+        };
+      })();
+    <\/script>
+  `;
+  if(/<head[^>]*>/i.test(userHtml)) return userHtml.replace(/<head([^>]*)>/i, '<head$1>' + shim);
+  if(/<html[^>]*>/i.test(userHtml)) return userHtml.replace(/<html([^>]*)>/i, '<html$1>' + shim);
+  return shim + userHtml;
+}
+
+function cleanupStage(){
+  if(currentIframe && currentIframe.parentNode) currentIframe.parentNode.removeChild(currentIframe);
+  currentIframe = null;
+}
+
+function waitForDequeue(encoder){
+  return new Promise(resolve => {
+    const handler = () => { encoder.removeEventListener('dequeue', handler); resolve(); };
+    encoder.addEventListener('dequeue', handler);
+  });
+}
+
+/* ============ TARGET RENDER: <canvas> ATAU <svg> ============ */
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Cari elemen yang akan direkam. <canvas> diprioritaskan; kalau tidak ada,
+// pakai <svg> terluar yang paling besar di halaman.
+function findRenderTarget(doc){
+  const canvas = doc.querySelector('canvas');
+  if(canvas) return { kind: 'canvas', el: canvas };
+
+  const svgs = Array.from(doc.querySelectorAll('svg')).filter(s => !(s.parentNode && s.parentNode.closest && s.parentNode.closest('svg')));
+  if(!svgs.length) return null;
+  let best = svgs[0], bestArea = -1;
+  for(const s of svgs){
+    const r = s.getBoundingClientRect();
+    const area = r.width * r.height;
+    if(area > bestArea){ best = s; bestArea = area; }
+  }
+  return { kind: 'svg', el: best };
+}
+
+// Siapkan penggambar SVG -> canvas. Tiap frame: salin <svg> pada keadaan saat ini,
+// ubah jadi gambar, lalu gambar ke canvas berukuran w×h (lalu diambil sebagai VideoFrame).
+function createSvgRasterizer(svgEl, w, h){
+  const doc = svgEl.ownerDocument;
+  const raster = document.createElement('canvas');
+  raster.width = w; raster.height = h;
+  const rctx = raster.getContext('2d');
+
+  // CSS dari <style> halaman ikut dibawa, karena SVG yang dirender sebagai gambar
+  // tidak lagi "melihat" stylesheet halaman aslinya.
+  const pageCss = Array.from(doc.querySelectorAll('style')).map(s => s.textContent).join('\n');
+  const br = svgEl.getBoundingClientRect();
+  const baseW = br.width || w, baseH = br.height || h;
+
+  async function draw(){
+    const clone = svgEl.cloneNode(true);
+    clone.setAttribute('xmlns', SVG_NS);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    clone.style.width = w + 'px';
+    clone.style.height = h + 'px';
+    clone.style.display = 'block';
+    if(!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', '0 0 ' + baseW + ' ' + baseH);
+    if(pageCss.trim()){
+      const st = doc.createElementNS(SVG_NS, 'style');
+      st.textContent = pageCss;
+      clone.insertBefore(st, clone.firstChild);
+    }
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    try{
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('SVG frame gagal dimuat sebagai gambar'));
+        img.src = url;
+      });
+      // MP4 tidak punya kanal alpha: latar transparan akan jadi hitam.
+      rctx.fillStyle = '#000';
+      rctx.fillRect(0, 0, w, h);
+      rctx.drawImage(img, 0, 0, w, h);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return raster;
+  }
+  return { draw };
+}
+
+function pickCodecAndBitrate(w, h){
+  // High Profile / Level 5.1 covers up to 4K comfortably; step down bitrate/profile if unsupported.
+  const candidates = w >= 3840
+    ? [{ codec: 'avc1.640033', bitrate: 40_000_000 }]
+    : (w >= 1920
+      ? [{ codec: 'avc1.640028', bitrate: 12_000_000 }, { codec: 'avc1.42001f', bitrate: 12_000_000 }]
+      : [{ codec: 'avc1.42001f', bitrate: 5_000_000 }]);
+  return candidates;
+}
+
+cancelBtn.addEventListener('click', () => {
+  cancelled = true;
+  setStatus('Dibatalkan.', 'err');
+});
+
+recordBtn.addEventListener('click', async () => {
+  const raw = codeInput.value.trim();
+  if(!raw){ setStatus('Tempel dulu kode HTML-nya.', 'err'); return; }
+
+  cancelled = false;
+  recordBtn.disabled = true;
+  stageSection.style.display = 'block';
+  resultSection.style.display = 'none';
+
+  const [w, h] = resSel.value.split('x').map(Number);
+  const fps = Number(fpsSel.value);
+  const duration = Math.max(1, Math.min(60, Number(durInput.value) || 20));
+  const totalFrames = Math.round(duration * fps);
+  const frameDurationMs = 1000 / fps;
+  const frameDurationUs = Math.round(1_000_000 / fps);
+
+  setStatus('Menyiapkan panggung render (' + w + '×' + h + ')...', 'live');
+
+  const iframe = document.createElement('iframe');
+  iframe.width = w;
+  iframe.height = h;
+  iframe.setAttribute('scrolling', 'no');
+  iframe.srcdoc = buildIframeDoc(raw);
+  currentIframe = iframe;
+  stage.appendChild(iframe);
+  stageTag.textContent = w + '×' + h + ' · ' + fps + 'fps';
+
+  function scaleStage(){
+    const scale = stage.clientWidth / w;
+    iframe.style.width = w + 'px';
+    iframe.style.height = h + 'px';
+    iframe.style.transform = 'scale(' + scale + ')';
+  }
+  scaleStage();
+  window.addEventListener('resize', scaleStage);
+
+  iframe.onload = async () => {
+    await new Promise(r => setTimeout(r, 150));
+
+    let target = null;
+    try{
+      target = findRenderTarget(iframe.contentDocument);
+      // Beri waktu sampai 2 detik kalau elemennya baru dibuat belakangan oleh script.
+      const deadline = Date.now() + 2000;
+      while(!target && Date.now() < deadline && !cancelled){
+        await new Promise(r => setTimeout(r, 100));
+        target = findRenderTarget(iframe.contentDocument);
+      }
+    }catch(e){ setStatus('Tidak bisa mengakses iframe: ' + e.message, 'err'); cleanupStage(); recordBtn.disabled = false; return; }
+    if(!target){ setStatus('Tidak menemukan <canvas> atau <svg> di kode yang ditempel.', 'err'); cleanupStage(); recordBtn.disabled = false; return; }
+    const canvasEl = target.kind === 'canvas' ? target.el : null;
+    const svgRasterizer = target.kind === 'svg' ? createSvgRasterizer(target.el, w, h) : null;
+
+    const win = iframe.contentWindow;
+    if(typeof win.__ff_step !== 'function'){
+      setStatus('Kode ini tidak memakai requestAnimationFrame secara langsung, jadi tidak bisa dirender deterministic.', 'err');
+      cleanupStage(); recordBtn.disabled = false; return;
+    }
+
+    // Set up muxer + encoder
+    const muxer = new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      video: { codec: 'avc', width: w, height: h, frameRate: fps },
+      fastStart: 'in-memory'
+    });
+
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: (e) => setStatus('Encoder error: ' + e.message, 'err')
+    });
+
+    const candidates = pickCodecAndBitrate(w, h);
+    let configured = false;
+    for(const c of candidates){
+      const config = { codec: c.codec, width: w, height: h, bitrate: c.bitrate, framerate: fps };
+      try{
+        const support = await VideoEncoder.isConfigSupported(config);
+        if(support.supported){ encoder.configure(config); configured = true; break; }
+      }catch(e){ /* try next candidate */ }
+    }
+    if(!configured){
+      setStatus('Tidak ada konfigurasi encoder H.264 yang didukung di browser ini untuk resolusi ' + w + '×' + h + '.', 'err');
+      cleanupStage(); recordBtn.disabled = false; return;
+    }
+
+    setStatus('Menggambar & mengkodekan setiap frame...', 'live');
+    const keyFrameEvery = fps * 2;
+
+    for(let i = 0; i < totalFrames; i++){
+      if(cancelled){
+        setStatus('Dibatalkan.', 'err');
+        cleanupStage(); recordBtn.disabled = false; phase.style.display = 'none';
+        try{ encoder.close(); }catch(e){}
+        return;
+      }
+
+      win.__ff_step(i * frameDurationMs);
+
+      let frameSource = canvasEl;
+      if(svgRasterizer){
+        try{ frameSource = await svgRasterizer.draw(); }
+        catch(e){
+          setStatus('Gagal menggambar frame SVG: ' + e.message, 'err');
+          cleanupStage(); recordBtn.disabled = false; phase.style.display = 'none';
+          try{ encoder.close(); }catch(_){}
+          return;
+        }
+      }
+
+      const frame = new VideoFrame(frameSource, {
+        timestamp: i * frameDurationUs,
+        duration: frameDurationUs
+      });
+      encoder.encode(frame, { keyFrame: i % keyFrameEvery === 0 });
+      frame.close();
+
+      setPhase('Menggambar & mengkodekan frame', i + 1, totalFrames);
+
+      // Backpressure: don't let too many frames queue up in memory.
+      while(encoder.encodeQueueSize > 4){ await waitForDequeue(encoder); }
+      if(i % 4 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    cleanupStage();
+    setStatus('Menyelesaikan encoding & membungkus MP4...', 'live');
+
+    try{
+      await encoder.flush();
+      encoder.close();
+      muxer.finalize();
+    }catch(e){
+      setStatus('Gagal finalisasi video: ' + e.message, 'err');
+      recordBtn.disabled = false;
+      return;
+    }
+
+    const { buffer } = muxer.target;
+    const blob = new Blob([buffer], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    const sizeMb = (blob.size / (1024*1024)).toFixed(1);
+
+    resultVideo.src = url;
+    resultVideo.style.display = 'block';
+    dlRow.style.display = 'flex';
+    dlLink.href = url;
+    const baseName = lastMetadata && lastMetadata.filename_base ? lastMetadata.filename_base : 'render-murni';
+    dlLink.download = baseName + '-' + w + 'x' + h + '-' + fps + 'fps.mp4';
+    dlInfo.textContent = 'MP4 · ' + w + '×' + h + ' · ' + fps + 'fps · ' + sizeMb + ' MB';
+    resultSection.style.display = 'block';
+    resultSection.scrollIntoView({ behavior:'smooth', block:'start' });
+
+    setStatus('Selesai — video dirender presisi, frame demi frame.', 'ok');
+    phase.style.display = 'none';
+    recordBtn.disabled = false;
+  };
+});
+</script>
+</body>
+</html>
